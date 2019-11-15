@@ -497,14 +497,6 @@ namespace Ogre {
                 BP_DOWN = 5
             };
 
-            /* Internal utility method for creating the planes of a skybox.
-            */
-            MeshPtr createSkyboxPlane(
-                BoxPlane bp,
-                Real distance,
-                const Quaternion& orientation,
-                const String& groupName);
-
             /* Internal utility method for creating the planes of a skydome.
             */
             MeshPtr createSkydomePlane(
@@ -2187,7 +2179,7 @@ namespace Ogre {
 
 
         /** Creates a new BillboardSet for use with this scene manager.
-            @remarks
+
                 This method creates a new BillboardSet which is registered with
                 the SceneManager. The SceneManager will destroy this object when
                 it shuts down or when the SceneManager::clearScene method is
@@ -2204,6 +2196,7 @@ namespace Ogre {
         BillboardSet* createBillboardSet(unsigned int poolSize = 20);
 
         /** @overload
+            @copydoc createBillboardSet(unsigned int)
             @param
                 name The name to give to this billboard set. Must be unique.
         */

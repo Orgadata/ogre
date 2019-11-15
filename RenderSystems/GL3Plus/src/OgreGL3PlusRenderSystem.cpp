@@ -190,6 +190,19 @@ namespace Ogre {
         mGLSupport->start();
     }
 
+    void GL3PlusRenderSystem::initConfigOptions()
+    {
+        GLRenderSystemCommon::initConfigOptions();
+
+        ConfigOption opt;
+        opt.name = "Reversed Z-Buffer";
+        opt.possibleValues = {"No", "Yes"};
+        opt.currentValue = opt.possibleValues[0];
+        opt.immutable = false;
+
+        mOptions[opt.name] = opt;
+    }
+
     RenderSystemCapabilities* GL3PlusRenderSystem::createRenderSystemCapabilities() const
     {
         RenderSystemCapabilities* rsc = OGRE_NEW RenderSystemCapabilities();
@@ -502,7 +515,6 @@ namespace Ogre {
 
         // Use FBO's for RTT, PBuffers and Copy are no longer supported
         // Create FBO manager
-        LogManager::getSingleton().logMessage("GL3+: Using FBOs for rendering to textures");
         mRTTManager = new GL3PlusFBOManager(this);
         caps->setCapability(RSC_RTT_DEPTHBUFFER_RESOLUTION_LESSEQUAL);
 
@@ -642,14 +654,21 @@ namespace Ogre {
         {
             initialiseContext(win);
 
-            if (mDriverVersion.major < 3)
-                OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
-                            "Driver does not support at least OpenGL 3.0.",
-                            "GL3PlusRenderSystem::_createRenderWindow");
-
             const char* shadingLangVersion = (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
             StringVector tokens = StringUtil::split(shadingLangVersion, ". ");
             mNativeShadingLanguageVersion = (StringConverter::parseUnsignedInt(tokens[0]) * 100) + StringConverter::parseUnsignedInt(tokens[1]);
+
+            auto it = mOptions.find("Reversed Z-Buffer");
+            if (it != mOptions.end())
+            {
+                mIsReverseDepthBufferEnabled = StringConverter::parseBool(it->second.currentValue);
+
+                if(mIsReverseDepthBufferEnabled && !hasMinGLVersion(4, 5) && !checkExtension("GL_ARB_clip_control"))
+                {
+                    mIsReverseDepthBufferEnabled = false;
+                    LogManager::getSingleton().logWarning("Reversed Z-Buffer was requested, but it is not supported. Disabling.");
+                }
+            }
 
             // Initialise GL after the first window has been created
             // TODO: fire this from emulation options, and don't duplicate Real and Current capabilities
@@ -697,8 +716,7 @@ namespace Ogre {
             // Presence of an FBO means the manager is an FBO Manager, that's why it's safe to downcast.
             // Find best depth & stencil format suited for the RT's format.
             GLuint depthFormat, stencilFormat;
-            static_cast<GL3PlusFBOManager*>(mRTTManager)->getBestDepthStencil( fbo->getFormat(),
-                                                                               &depthFormat, &stencilFormat );
+            _getDepthStencilFormatFor(fbo->getFormat(), &depthFormat, &stencilFormat);
 
             GL3PlusRenderBuffer *depthBuffer = new GL3PlusRenderBuffer( depthFormat, fbo->getWidth(),
                                                                         fbo->getHeight(), fbo->getFSAA() );
@@ -1056,7 +1074,7 @@ namespace Ogre {
     {
         if (enabled)
         {
-            mStateCacheManager->setClearDepth(1.0f);
+            mStateCacheManager->setClearDepth(isReverseDepthBufferEnabled() ? 0.0f : 1.0f);
         }
         mStateCacheManager->setEnabled(GL_DEPTH_TEST, enabled);
     }
@@ -1072,12 +1090,13 @@ namespace Ogre {
 
     void GL3PlusRenderSystem::_setDepthBufferFunction(CompareFunction func)
     {
+        if(isReverseDepthBufferEnabled())
+            func = reverseCompareFunction(func);
         mStateCacheManager->setDepthFunc(convertCompareFunction(func));
     }
 
     void GL3PlusRenderSystem::_setDepthBias(float constantBias, float slopeScaleBias)
     {
-        //FIXME glPolygonOffset currently is buggy in GL3+ RS but not GL RS.
         bool enable = constantBias != 0 || slopeScaleBias != 0;
         mStateCacheManager->setEnabled(GL_POLYGON_OFFSET_FILL, enable);
         mStateCacheManager->setEnabled(GL_POLYGON_OFFSET_POINT, enable);
@@ -1085,6 +1104,12 @@ namespace Ogre {
 
         if (enable)
         {
+            if(isReverseDepthBufferEnabled())
+            {
+                slopeScaleBias *= -1;
+                constantBias *= -1;
+            }
+
             glPolygonOffset(-slopeScaleBias, -constantBias);
         }
     }
@@ -1456,6 +1481,22 @@ namespace Ogre {
         // VAO #0 is not supported in Core profiles, and WOULD NOT be used by Ogre even in compatibility profiles
     }
 
+    void GL3PlusRenderSystem::_getDepthStencilFormatFor(PixelFormat internalColourFormat,
+                                                        uint32* depthFormat,
+                                                        uint32* stencilFormat)
+    {
+        if (isReverseDepthBufferEnabled())
+        {
+            *depthFormat = GL_DEPTH_COMPONENT32F;
+            *stencilFormat = GL_NONE;
+        }
+        else
+        {
+            static_cast<GL3PlusFBOManager*>(mRTTManager)->getBestDepthStencil(
+                    internalColourFormat, depthFormat, stencilFormat);
+        }
+    }
+
     void GL3PlusRenderSystem::setScissorTest(bool enabled, size_t left,
                                              size_t top, size_t right,
                                              size_t bottom)
@@ -1538,6 +1579,12 @@ namespace Ogre {
             {
                 mStateCacheManager->setDepthMask( GL_TRUE );
             }
+
+            if (isReverseDepthBufferEnabled())
+            {
+                depth = 1.0f - 0.5f * (depth + 1.0f);
+            }
+
             mStateCacheManager->setClearDepth(depth);
         }
         if (buffers & FBT_STENCIL)
@@ -1722,7 +1769,6 @@ namespace Ogre {
         if (fsaa_active)
         {
             OGRE_CHECK_GL_ERROR(glEnable(GL_MULTISAMPLE));
-            LogManager::getSingleton().logMessage("Using FSAA.");
         }
 
         if (checkExtension("GL_EXT_texture_filter_anisotropic"))
@@ -1758,6 +1804,12 @@ namespace Ogre {
             // https://www.opengl.org/discussion_boards/showthread.php/168217-gl_PointCoord-and-OpenGL-3-1-GLSL-1-4
             glEnable(0x8861); // GL_POINT_SPRITE
             glGetError();     // clear the error that it generates nevertheless..
+        }
+
+        if (isReverseDepthBufferEnabled())
+        {
+            // We want depth to range from 0 to 1 to increase precision.
+            glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
         }
     }
 
@@ -1855,7 +1907,7 @@ namespace Ogre {
             return GL_GEQUAL;
         case CMPF_GREATER:
             return GL_GREATER;
-        };
+        }
         // To keep compiler happy
         return GL_ALWAYS;
     }

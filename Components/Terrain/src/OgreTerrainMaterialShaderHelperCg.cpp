@@ -100,7 +100,7 @@ namespace Ogre
         if(lang == "hlsl")
         {
             ret->setParameter("enable_backwards_compatibility", "true");
-            ret->setParameter("target", "ps_4_0 ps_3_0 ps_2_x");
+            ret->setParameter("target", "ps_4_0 ps_3_0 ps_2_b");
         }
         else
         {
@@ -282,8 +282,7 @@ namespace Ogre
     {
 
         // Main header
-        if(mSM4Available)
-            outStream << "#include <HLSL_SM4Support.hlsl>\n";
+        outStream << "#include <HLSL_SM4Support.hlsl>\n";
         outStream << "#include <TerrainHelpers.cg>\n";
 
         if (prof->isShadowingEnabled(tt, terrain))

@@ -56,6 +56,7 @@ namespace Ogre {
     */
     class _OgreGL3PlusExport GL3PlusRenderSystem : public GLRenderSystemCommon
     {
+        friend class GL3PlusSampler;
     private:
         /// Rendering loop control
         bool mStopRendering;
@@ -139,6 +140,8 @@ namespace Ogre {
 
         void _initialise() override;
 
+        void initConfigOptions();
+
         virtual RenderSystemCapabilities* createRenderSystemCapabilities() const;
 
         void initialiseFromRenderSystemCapabilities(RenderSystemCapabilities* caps, RenderTarget* primary);
@@ -212,6 +215,10 @@ namespace Ogre {
         void _dispatchCompute(const Vector3i& workgroupDim);
 
         void _render(const RenderOperation& op);
+
+        void _getDepthStencilFormatFor(PixelFormat internalColourFormat,
+                                       uint32* depthFormat,
+                                       uint32* stencilFormat);
 
         void setScissorTest(bool enabled, size_t left = 0, size_t top = 0, size_t right = 800, size_t bottom = 600);
 

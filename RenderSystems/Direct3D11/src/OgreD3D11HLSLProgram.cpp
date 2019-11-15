@@ -182,7 +182,12 @@ namespace Ogre {
         macro.Name = "SHADER_MODEL_4";
         defines.push_back(macro);
 
-        
+        if(Root::getSingleton().getRenderSystem()->isReverseDepthBufferEnabled())
+        {
+            macro.Name = "OGRE_REVERSED_Z";
+            defines.push_back(macro);
+        }
+
 		switch (this->mType)
 		{
 			case GPT_VERTEX_PROGRAM:
@@ -1555,15 +1560,12 @@ namespace Ogre {
         {
             if(mTarget == "vs_2_0") return vs_4_0_level_9_1;
             if(mTarget == "vs_2_a") return vs_4_0_level_9_3;
-            if(mTarget == "vs_2_x") return vs_4_0_level_9_3;
             if(mTarget == "vs_3_0") return vs_4_0;
 
             if(mTarget == "ps_2_0") return ps_4_0_level_9_1;
             if(mTarget == "ps_2_a") return ps_4_0_level_9_3;
             if(mTarget == "ps_2_b") return ps_4_0_level_9_3;
-            if(mTarget == "ps_2_x") return ps_4_0_level_9_3;
             if(mTarget == "ps_3_0") return ps_4_0;
-            if(mTarget == "ps_3_x") return ps_4_0;
         }
 
         return mTarget;

@@ -1544,7 +1544,10 @@ namespace Ogre {
             @param count The number of floats to write; if for example
             the uniform constant 'slot' is smaller than a Vector4
         */
-        void _writeRawConstant(size_t physicalIndex, const Vector4& vec,
+        void _writeRawConstant(size_t physicalIndex, const Vector4f& vec,
+                               size_t count = 4);
+        /// @overload
+        void _writeRawConstant(size_t physicalIndex, const Vector<4, double>& vec,
                                size_t count = 4);
         /** Write a single floating-point parameter to the program.
             @note You can use these methods if you have already derived the physical
@@ -1554,14 +1557,8 @@ namespace Ogre {
             @param val The value to set
         */
         void _writeRawConstant(size_t physicalIndex, Real val);
-        /** Write a variable number of floating-point parameters to the program.
-            @note You can use these methods if you have already derived the physical
-            constant buffer location, for a slight speed improvement over using
-            the named / logical index versions.
-            @param physicalIndex The physical buffer index at which to place the parameter
-            @param val The value to set
-        */
-        void _writeRawConstant(size_t physicalIndex, Real val, size_t count);
+        /// @deprecated this will crash if count > 1
+        OGRE_DEPRECATED void _writeRawConstant(size_t physicalIndex, Real val, size_t count);
         /** Write a single integer parameter to the program.
             @note You can use these methods if you have already derived the physical
             constant buffer location, for a slight speed improvement over using

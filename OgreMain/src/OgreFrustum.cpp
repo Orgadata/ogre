@@ -478,7 +478,6 @@ namespace Ogre {
         // Deal with orientation mode
         mProjMatrix = mProjMatrix * Quaternion(Degree(mOrientationMode * 90.f), Vector3::UNIT_Z);
 #endif
-
         RenderSystem* renderSystem = Root::getSingleton().getRenderSystem();
 
         if(renderSystem)

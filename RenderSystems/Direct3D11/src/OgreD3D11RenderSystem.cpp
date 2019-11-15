@@ -443,6 +443,13 @@ namespace Ogre
 
 		mOptions[optBackBufferCount.name] = optBackBufferCount;
 
+        ConfigOption opt;
+        opt.name = "Reversed Z-Buffer";
+        opt.possibleValues = {"No", "Yes"};
+        opt.currentValue = opt.possibleValues[0];
+        opt.immutable = false;
+
+        mOptions[opt.name] = opt;
         
         refreshD3DSettings();
 
@@ -536,6 +543,9 @@ namespace Ogre
             mMaxRequestedFeatureLevel = D3D11Device::parseFeatureLevel(value, D3D_FEATURE_LEVEL_11_0);
 #endif
         }
+
+        if(name == "Reversed Z-Buffer")
+            mIsReverseDepthBufferEnabled = StringConverter::parseBool(value);
 
         if( name == "Allow NVPerfHUD" )
         {
@@ -954,7 +964,6 @@ namespace Ogre
         rsc->setNumMultiRenderTargets(std::min(numMultiRenderTargets, (int)OGRE_MAX_MULTIPLE_RENDER_TARGETS));
         rsc->setCapability(RSC_MRT_DIFFERENT_BIT_DEPTHS);
 
-        rsc->setCapability(RSC_POINT_SPRITES);
         rsc->setCapability(RSC_POINT_EXTENDED_PARAMETERS);
         rsc->setMaxPointSize(256); // TODO: guess!
     
@@ -1010,7 +1019,6 @@ namespace Ogre
             rsc->addShaderProfile("vs_4_0_level_9_3");
 #if SUPPORT_SM2_0_HLSL_SHADERS == 1
             rsc->addShaderProfile("vs_2_a");
-            rsc->addShaderProfile("vs_2_x");
 #endif
         }
         if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
@@ -1056,7 +1064,6 @@ namespace Ogre
 #if SUPPORT_SM2_0_HLSL_SHADERS == 1
             rsc->addShaderProfile("ps_2_a");
             rsc->addShaderProfile("ps_2_b");
-            rsc->addShaderProfile("ps_2_x");
 #endif
         }
         if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
@@ -1064,7 +1071,6 @@ namespace Ogre
             rsc->addShaderProfile("ps_4_0");
 #if SUPPORT_SM2_0_HLSL_SHADERS == 1
             rsc->addShaderProfile("ps_3_0");
-            rsc->addShaderProfile("ps_3_x");
 #endif
         }
         if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_1)
@@ -1226,9 +1232,9 @@ namespace Ogre
         descDepth.ArraySize             = BBDesc.ArraySize;
 
         if ( mFeatureLevel < D3D_FEATURE_LEVEL_10_0)
-            descDepth.Format            = DXGI_FORMAT_D24_UNORM_S8_UINT;
+            descDepth.Format            = isReverseDepthBufferEnabled() ? DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_D24_UNORM_S8_UINT;
         else
-            descDepth.Format            = DXGI_FORMAT_R24G8_TYPELESS;
+            descDepth.Format            = isReverseDepthBufferEnabled() ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_R24G8_TYPELESS;
 
         descDepth.SampleDesc.Count      = BBDesc.SampleDesc.Count;
         descDepth.SampleDesc.Quality    = BBDesc.SampleDesc.Quality;
@@ -1247,7 +1253,6 @@ namespace Ogre
         {
             descDepth.MiscFlags     |= D3D11_RESOURCE_MISC_TEXTURECUBE;
         }
-
 
         HRESULT hr = mDevice->CreateTexture2D( &descDepth, NULL, pDepthStencil.ReleaseAndGetAddressOf() );
         if( FAILED(hr) || mDevice.isError())
@@ -1287,6 +1292,11 @@ namespace Ogre
         descDSV.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
         descDSV.ViewDimension = (BBDesc.SampleDesc.Count > 1) ? D3D11_DSV_DIMENSION_TEXTURE2DMS : D3D11_DSV_DIMENSION_TEXTURE2D;
         descDSV.Flags = 0 /* D3D11_DSV_READ_ONLY_DEPTH | D3D11_DSV_READ_ONLY_STENCIL */;    // TODO: Allows bind depth buffer as depth view AND texture simultaneously.
+
+        if(isReverseDepthBufferEnabled())
+        {
+            descDSV.Format            = DXGI_FORMAT_R32_FLOAT;
+        }
                                                                                             // TODO: Decide how to expose this feature
         descDSV.Texture2D.MipSlice = 0;
         hr = mDevice->CreateDepthStencilView( pDepthStencil.Get(), &descDSV, &depthStencilView );
@@ -1540,11 +1550,22 @@ namespace Ogre
     {
         dest = matrix;
 
-        // Convert depth range from [-1,+1] to [0,1]
-        dest[2][0] = (dest[2][0] + dest[3][0]) / 2;
-        dest[2][1] = (dest[2][1] + dest[3][1]) / 2;
-        dest[2][2] = (dest[2][2] + dest[3][2]) / 2;
-        dest[2][3] = (dest[2][3] + dest[3][3]) / 2;
+        if (mIsReverseDepthBufferEnabled)
+        {
+            // Convert depth range from [-1,+1] to [1,0]
+            dest[2][0] = (dest[2][0] - dest[3][0]) * -0.5f;
+            dest[2][1] = (dest[2][1] - dest[3][1]) * -0.5f;
+            dest[2][2] = (dest[2][2] - dest[3][2]) * -0.5f;
+            dest[2][3] = (dest[2][3] - dest[3][3]) * -0.5f;
+        }
+        else
+        {
+            // Convert depth range from [-1,+1] to [0,1]
+            dest[2][0] = (dest[2][0] + dest[3][0]) / 2;
+            dest[2][1] = (dest[2][1] + dest[3][1]) / 2;
+            dest[2][2] = (dest[2][2] + dest[3][2]) / 2;
+            dest[2][3] = (dest[2][3] + dest[3][3]) / 2;
+        }
 
         if (!forGpuProgram)
         {
@@ -1590,10 +1611,18 @@ namespace Ogre
         mTexStageDesc[unit].samplerDesc.MipLODBias = sampler.getMipmapBias();
 
         if (uvw.u == TAM_BORDER || uvw.v == TAM_BORDER || uvw.w == TAM_BORDER)
-            D3D11Mappings::get(sampler.getBorderColour(), mTexStageDesc[unit].samplerDesc.BorderColor);
+        {
+            auto borderColour = (mIsReverseDepthBufferEnabled && sampler.getCompareEnabled())
+                                    ? ColourValue::White - sampler.getBorderColour()
+                                    : sampler.getBorderColour();
+            D3D11Mappings::get(borderColour, mTexStageDesc[unit].samplerDesc.BorderColor);
+        }
 
         mTexStageDesc[unit].samplerDesc.MaxAnisotropy = sampler.getAnisotropy();
-        mTexStageDesc[unit].samplerDesc.ComparisonFunc = D3D11Mappings::get(sampler.getCompareFunction());
+
+        auto cmpFunc = sampler.getCompareFunction();
+        if(mIsReverseDepthBufferEnabled) cmpFunc = reverseCompareFunction(cmpFunc);
+        mTexStageDesc[unit].samplerDesc.ComparisonFunc = D3D11Mappings::get(cmpFunc);
 
         FilterMinification[unit] = sampler.getFiltering(FT_MIN);
         FilterMagnification[unit] = sampler.getFiltering(FT_MAG);
@@ -1685,12 +1714,21 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setDepthBufferFunction( CompareFunction func )
     {
+        if(isReverseDepthBufferEnabled())
+            func = reverseCompareFunction(func);
+
         mDepthStencilDesc.DepthFunc = D3D11Mappings::get(func);
         mDepthStencilDescChanged = true;
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setDepthBias(float constantBias, float slopeScaleBias)
     {
+        if(isReverseDepthBufferEnabled())
+        {
+            slopeScaleBias *= -1;
+            constantBias *= -1;
+        }
+
 		const float nearFarFactor = 10.0; 
 		mRasterizerDesc.DepthBias = static_cast<int>(-constantBias * nearFarFactor);
 		mRasterizerDesc.SlopeScaledDepthBias = -slopeScaleBias;
@@ -3221,6 +3259,11 @@ namespace Ogre
                                                                                         getDepthBuffer());
                 if( depthBuffer )
                 {
+                    if (isReverseDepthBufferEnabled())
+                    {
+                        depth = 1.0f - 0.5f * (depth + 1.0f);
+                    }
+
                     mDevice.GetImmediateContext()->ClearDepthStencilView(
                                                         depthBuffer->getDepthStencilView(),
                                                         ClearFlags, depth, static_cast<UINT8>(stencil) );
